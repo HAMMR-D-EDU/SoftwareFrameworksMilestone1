@@ -1,1 +1,6 @@
 client/.angular/
+client/.angular/
+client/dist/
+client/node_modules/
+*.log
+.DS_Store

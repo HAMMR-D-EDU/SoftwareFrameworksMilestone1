@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { ApiService } from '../../services/api.service';
 
 @Component({
   selector: 'app-login',
@@ -31,13 +32,19 @@ export class LoginComponent {
   password = '';
   error = '';
 
-  constructor(private auth: AuthService, private router: Router) {}
+  constructor(private auth: AuthService, private api: ApiService, private router: Router) {}
 
   submit() {
-    if (this.auth.login(this.username, this.password)) {
-      this.router.navigateByUrl('/');
-    } else {
-      this.error = 'Those credentials do not match';
-    }
+    this.error = '';
+    this.api.login({ username: this.username, password: this.password }).subscribe({
+      next: (user) => {
+        // Store the user in LocalStorage for the frontend
+        this.auth.storeUser(user);
+        this.router.navigateByUrl('/');
+      },
+      error: (error) => {
+        this.error = 'Those credentials do not match';
+      }
+    });
   }
 }

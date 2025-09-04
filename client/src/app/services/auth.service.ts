@@ -1,11 +1,11 @@
 import { Injectable } from '@angular/core';
 import { StorageService } from './storage.service';
 
-export type Role = 'super' | 'groupAdmin' | 'user';
+export type Role = 'super' | 'super_admin' | 'groupAdmin' | 'group_admin' | 'user';
 export interface User {
   id: string;
   username: string;
-  password: string; // Phase-1 only (demo)
+  password: string; 
   email?: string;
   roles: Role[];
   groups: string[];
@@ -56,5 +56,9 @@ export class AuthService {
 
   logout(): void {
     this.store.remove(this.SESSION_KEY);
+  }
+
+  storeUser(user: any): void {
+    this.store.set(this.SESSION_KEY, user);
   }
 }

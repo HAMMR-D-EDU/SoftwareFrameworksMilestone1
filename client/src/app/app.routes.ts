@@ -6,12 +6,13 @@ import { AdminPanelComponent } from './components/admin-panel/admin-panel.compon
 import { ChannelViewComponent } from './components/channel-view/channel-view.component';
 import { GroupDetailComponent } from './components/group-detail/group-detail.component';
 import { AuthGuard } from './guards/auth.guard';
+import { RoleGuard } from './guards/role.guard';
 
 export const routes: Routes = [
   { path: '', component: DashboardComponent, canActivate: [AuthGuard] },
   { path: 'login', component: LoginComponent },
   { path: 'register', component: RegisterComponent },
-  { path: 'admin', component: AdminPanelComponent, canActivate: [AuthGuard] },
+  { path: 'admin', component: AdminPanelComponent, canActivate: [AuthGuard, RoleGuard] },
   { path: 'group/:gid', component: GroupDetailComponent, canActivate: [AuthGuard] },
   { path: 'group/:gid/channel/:cid', component: ChannelViewComponent, canActivate: [AuthGuard] },
   { path: '**', redirectTo: '' }

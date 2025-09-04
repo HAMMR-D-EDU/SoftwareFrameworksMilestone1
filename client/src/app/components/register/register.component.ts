@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
+import { ApiService } from '../../services/api.service';
 
 @Component({
   selector: 'app-register',
@@ -38,19 +39,24 @@ export class RegisterComponent {
   error = '';
   success = '';
 
-  constructor(private auth: AuthService, private router: Router) {}
+  constructor(private auth: AuthService, private api: ApiService, private router: Router) {}
 
   submit() {
     this.error = '';
     this.success = '';
     
-    const result = this.auth.register({ username: this.username, password: this.password, email: this.email });
-    
-    if (result.ok) {
-      this.success = 'Account created! Please login.';
-      setTimeout(() => this.router.navigateByUrl('/login'), 2000);
-    } else {
-      this.error = result.msg || 'Registration failed';
-    }
+    this.api.register({ username: this.username, password: this.password, email: this.email }).subscribe({
+      next: (result) => {
+        if (result.ok) {
+          this.success = 'Account created! Please login.';
+          setTimeout(() => this.router.navigateByUrl('/login'), 2000);
+        } else {
+          this.error = result.msg || 'Registration failed';
+        }
+      },
+      error: (error) => {
+        this.error = error.error?.msg || 'Registration failed';
+      }
+    });
   }
 }

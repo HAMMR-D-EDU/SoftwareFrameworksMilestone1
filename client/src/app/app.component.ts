@@ -13,5 +13,5 @@ import { NavbarComponent } from './components/navbar/navbar.component';
   styles: []
 })
 export class AppComponent {
-  title = '3813ICT Chat App';
+  title = 'MACRO-HARD Teams';
 }

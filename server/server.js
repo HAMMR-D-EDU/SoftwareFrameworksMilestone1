@@ -1,21 +1,60 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());           // allow :4200 → :3000 during dev
 app.use(express.json());   // parse JSON bodies
 
-// In-memory data storage (in real app, this would be a database)
-const users = [
+// In-memory data storage with JSON file persistence
+let users = [
   { id: 'u_1', username: 'super', password: '123', email: '', roles: ['super', 'super_admin'], groups: [] },
   { id: 'u_2', username: '1', password: '123', email: '', roles: ['user'], groups: [] },
   { id: 'u_3', username: '2', password: '123', email: '', roles: ['user'], groups: [] },
 ];
+let groups = [];
+let channels = [];
+let groupInterests = []; // For users requesting to join groups
+let reports = []; // For group admin reports to super admins
 
-const groups = [];
-const channels = [];
-const groupInterests = []; // For users requesting to join groups
-const reports = []; // For group admin reports to super admins
+const DATA_FILE = path.join(__dirname, 'data.json');
+
+function loadDataFromDisk() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) return;
+    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.users)) users = parsed.users;
+      if (Array.isArray(parsed.groups)) groups = parsed.groups;
+      if (Array.isArray(parsed.channels)) channels = parsed.channels;
+      if (Array.isArray(parsed.groupInterests)) groupInterests = parsed.groupInterests;
+      if (Array.isArray(parsed.reports)) reports = parsed.reports;
+    }
+  } catch (err) {
+    console.error('Failed to load data.json:', err);
+  }
+}
+
+function saveDataToDisk() {
+  const payload = {
+    users,
+    groups,
+    channels,
+    groupInterests,
+    reports,
+  };
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to write data.json:', err);
+  }
+}
+
+// Load existing data on server startup
+loadDataFromDisk();
 
 // Health check (quick test)
 app.get('/health', (req, res) => res.json({ ok: true }));
@@ -45,6 +84,7 @@ app.post('/api/register', (req, res) => {
   if (users.some(u => u.username === username)) return res.status(409).json({ ok: false, msg: 'Username exists' });
   const id = `u_${users.length + 1}`;
   users.push({ id, username, password, email, roles: ['user'], groups: [] });
+  saveDataToDisk();
   res.status(201).json({ ok: true, id });
 });
 
@@ -58,6 +98,22 @@ app.get('/admin/users', (req, res) => {
   }
   const safe = users.map(({ password, ...u }) => u);
   res.json(safe);
+});
+
+// ADMIN: create user (super only)
+app.post('/admin/users', (req, res) => {
+  const { adminId, username, email = '', password = '123' } = req.body || {};
+  const admin = users.find(u => u.id === adminId);
+  if (!admin || !(admin.roles.includes('super') || admin.roles.includes('super_admin'))) {
+    return res.status(403).json({ ok: false, msg: 'Only super admins can create users' });
+  }
+  if (!username) return res.status(400).json({ ok: false, msg: 'Username is required' });
+  if (users.some(u => u.username === username)) return res.status(409).json({ ok: false, msg: 'Username exists' });
+  const id = `u_${users.length + 1}`;
+  users.push({ id, username, password, email, roles: ['user'], groups: [] });
+  saveDataToDisk();
+  const { password: _pw, ...safe } = users.find(u => u.id === id) || {};
+  return res.status(201).json({ ok: true, user: safe });
 });
 
 // ADMIN: toggle group_admin role (add/remove) (super only)
@@ -80,6 +136,7 @@ app.patch('/admin/users/:id/role', (req, res) => {
         g.adminIds.push(user.id);
       }
     });
+    saveDataToDisk();
     return res.json({ ok: true, msg: 'User promoted to group_admin' });
   }
   if (remove === 'group_admin') {
@@ -88,6 +145,7 @@ app.patch('/admin/users/:id/role', (req, res) => {
     groups.forEach(g => {
       g.adminIds = g.adminIds.filter(aid => aid !== user.id);
     });
+    saveDataToDisk();
     return res.json({ ok: true, msg: 'User demoted from group_admin' });
   }
   return res.status(400).json({ ok: false, msg: 'Specify add or remove for role' });
@@ -110,6 +168,7 @@ app.post('/admin/groups/:groupId/members', (req, res) => {
   if (addedUser && (addedUser.roles.includes('group_admin') || addedUser.roles.includes('groupAdmin'))) {
     if (!group.adminIds.includes(userId)) group.adminIds.push(userId);
   }
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User added to group' });
 });
 
@@ -124,6 +183,7 @@ app.delete('/admin/groups/:groupId/members/:userId', (req, res) => {
   if (!group) return res.status(404).json({ ok: false, msg: 'Group not found' });
   group.memberIds = group.memberIds.filter(id => id !== userId);
   group.adminIds = group.adminIds.filter(id => id !== userId);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User removed from group' });
 });
 
@@ -158,6 +218,7 @@ app.delete('/api/users/:userId', (req, res) => {
   });
   
   users.splice(userIndex, 1);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User removed successfully' });
 });
 
@@ -182,6 +243,7 @@ app.post('/api/users/:userId/promote-super', (req, res) => {
       if (!g.memberIds.includes(user.id)) g.memberIds.push(user.id);
       if (!g.adminIds.includes(user.id)) g.adminIds.push(user.id);
     });
+    saveDataToDisk();
     return res.json({ ok: true, msg: 'User promoted to super admin' });
   }
   return res.json({ ok: true, msg: 'User is already a super admin' });
@@ -212,7 +274,7 @@ app.delete('/api/users/:userId/self', (req, res) => {
   
   const userIndex = users.findIndex(u => u.id === userId);
   users.splice(userIndex, 1);
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User account deleted successfully' });
 });
 
@@ -248,6 +310,7 @@ app.post('/api/groups', (req, res) => {
     if (!group.adminIds.includes(sa.id)) group.adminIds.push(sa.id);
   });
   groups.push(group);
+  saveDataToDisk();
   res.status(201).json(group);
 });
 
@@ -288,6 +351,7 @@ app.post('/api/groups/:groupId/members', (req, res) => {
   }
   
   group.memberIds.push(userId);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User added to group' });
 });
 
@@ -327,8 +391,9 @@ app.delete('/api/groups/:groupId/members/:userId', (req, res) => {
   const groupChannels = channels.filter(c => c.groupId === groupId);
   groupChannels.forEach(channel => {
     channel.bannedUserIds = channel.bannedUserIds.filter(id => id !== userId);
+    channel.memberIds = (channel.memberIds || []).filter(id => id !== userId);
   });
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User removed from group successfully' });
 });
 
@@ -351,8 +416,9 @@ app.delete('/api/users/:userId/groups/:groupId', (req, res) => {
   const groupChannels = channels.filter(c => c.groupId === groupId);
   groupChannels.forEach(channel => {
     channel.bannedUserIds = channel.bannedUserIds.filter(id => id !== userId);
+    channel.memberIds = (channel.memberIds || []).filter(id => id !== userId);
   });
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User left group successfully' });
 });
 
@@ -383,7 +449,7 @@ app.delete('/api/groups/:groupId', (req, res) => {
   // Remove group
   const groupIndex = groups.findIndex(g => g.id === groupId);
   groups.splice(groupIndex, 1);
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'Group and all its channels removed successfully' });
 });
 
@@ -423,6 +489,7 @@ app.post('/api/groups/:groupId/promote', (req, res) => {
   }
   
   group.adminIds.push(userId);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User promoted to group admin' });
 });
 
@@ -448,7 +515,7 @@ app.post('/api/groups/:groupId/interest', (req, res) => {
     userId,
     timestamp: new Date().toISOString()
   });
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'Interest registered. Group admin will review your request.' });
 });
 
@@ -493,6 +560,7 @@ app.post('/api/groups/:groupId/interests/:interestId/approve', (req, res) => {
     if (!group.adminIds.includes(interest.userId)) group.adminIds.push(interest.userId);
   }
   groupInterests.splice(interestIndex, 1);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User added to group' });
 });
 
@@ -517,6 +585,7 @@ app.delete('/api/groups/:groupId/interests/:interestId', (req, res) => {
   }
 
   groupInterests.splice(interestIndex, 1);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'Request rejected' });
 });
 
@@ -534,7 +603,7 @@ app.get('/api/groups/:groupId/members', (req, res) => {
 
 // ==================== CHANNEL ENDPOINTS ====================
 
-// Create channel (owner only)
+// Create channel (group admin or super admin)
 app.post('/api/groups/:groupId/channels', (req, res) => {
   const { groupId } = req.params;
   const { name, creatorId } = req.body || {};
@@ -543,9 +612,11 @@ app.post('/api/groups/:groupId/channels', (req, res) => {
   
   const group = groups.find(g => g.id === groupId);
   if (!group) return res.status(404).json({ ok: false, msg: 'Group not found' });
-  
-  if (group.ownerId !== creatorId) {
-    return res.status(403).json({ ok: false, msg: 'Only the group owner can create channels' });
+  const creator = users.find(u => u.id === creatorId);
+  const isSuperAdmin = creator && (creator.roles.includes('super') || creator.roles.includes('super_admin'));
+  const isGroupAdmin = group.adminIds.includes(creatorId);
+  if (!isSuperAdmin && !isGroupAdmin) {
+    return res.status(403).json({ ok: false, msg: 'Only group admins can create channels' });
   }
   
   const existingChannels = channels.filter(c => c.groupId === groupId);
@@ -558,16 +629,32 @@ app.post('/api/groups/:groupId/channels', (req, res) => {
     name,
     groupId,
     creatorId,
-    bannedUserIds: []
+    bannedUserIds: [],
+    memberIds: [creatorId]
   };
+  // also ensure group owner and super admins have access
+  if (!channel.memberIds.includes(group.ownerId)) channel.memberIds.push(group.ownerId);
+  users.filter(u => u.roles.includes('super') || u.roles.includes('super_admin')).forEach(sa => {
+    if (!channel.memberIds.includes(sa.id)) channel.memberIds.push(sa.id);
+  });
   channels.push(channel);
+  saveDataToDisk();
   res.status(201).json(channel);
 });
 
 // Get channels for group
 app.get('/api/groups/:groupId/channels', (req, res) => {
   const { groupId } = req.params;
-  const groupChannels = channels.filter(c => c.groupId === groupId);
+  const { userId } = req.query;
+  const group = groups.find(g => g.id === groupId);
+  if (!group) return res.status(404).json({ ok: false, msg: 'Group not found' });
+  const requester = users.find(u => u.id === userId);
+  const isSuperAdmin = requester && (requester.roles.includes('super') || requester.roles.includes('super_admin'));
+  const isGroupAdmin = group.adminIds.includes(userId);
+  let groupChannels = channels.filter(c => c.groupId === groupId);
+  if (!isSuperAdmin && !isGroupAdmin) {
+    groupChannels = groupChannels.filter(c => Array.isArray(c.memberIds) && c.memberIds.includes(userId));
+  }
   res.json(groupChannels);
 });
 
@@ -586,14 +673,63 @@ app.delete('/api/groups/:groupId/channels/:channelId', (req, res) => {
   if (!admin) return res.status(403).json({ ok: false, msg: 'Admin not found' });
   
   const isSuperAdmin = admin.roles.includes('super') || admin.roles.includes('super_admin');
-  if (!isSuperAdmin && group.ownerId !== adminId) {
-    return res.status(403).json({ ok: false, msg: 'Only group owner or super admin can delete channel' });
+  if (!isSuperAdmin && !group.adminIds.includes(adminId)) {
+    return res.status(403).json({ ok: false, msg: 'Only group admin or super admin can delete channel' });
   }
   
   const channelIndex = channels.findIndex(c => c.id === channelId && c.groupId === groupId);
   channels.splice(channelIndex, 1);
-  
+  saveDataToDisk();
   res.json({ ok: true, msg: 'Channel removed successfully' });
+});
+
+// Add user to channel (group admin or super admin)
+app.post('/api/channels/:channelId/members', (req, res) => {
+  const { channelId } = req.params;
+  const { userId, adminId } = req.body || {};
+  const channel = channels.find(c => c.id === channelId);
+  if (!channel) return res.status(404).json({ ok: false, msg: 'Channel not found' });
+  const group = groups.find(g => g.id === channel.groupId);
+  if (!group) return res.status(404).json({ ok: false, msg: 'Group not found' });
+  const admin = users.find(u => u.id === adminId);
+  if (!admin) return res.status(403).json({ ok: false, msg: 'Admin not found' });
+  const isSuperAdmin = admin.roles.includes('super') || admin.roles.includes('super_admin');
+  if (!isSuperAdmin && !group.adminIds.includes(adminId)) {
+    return res.status(403).json({ ok: false, msg: 'Only group admins can add channel members' });
+  }
+  if (!group.memberIds.includes(userId)) {
+    return res.status(400).json({ ok: false, msg: 'User must be a group member to be added to channel' });
+  }
+  channel.memberIds = channel.memberIds || [];
+  if (channel.memberIds.includes(userId)) {
+    return res.status(409).json({ ok: false, msg: 'User already a channel member' });
+  }
+  channel.memberIds.push(userId);
+  saveDataToDisk();
+  res.json({ ok: true, msg: 'User added to channel' });
+});
+
+// Remove user from channel (group admin or super admin)
+app.delete('/api/channels/:channelId/members/:userId', (req, res) => {
+  const { channelId, userId } = req.params;
+  const { adminId } = req.body || {};
+  const channel = channels.find(c => c.id === channelId);
+  if (!channel) return res.status(404).json({ ok: false, msg: 'Channel not found' });
+  const group = groups.find(g => g.id === channel.groupId);
+  if (!group) return res.status(404).json({ ok: false, msg: 'Group not found' });
+  const admin = users.find(u => u.id === adminId);
+  if (!admin) return res.status(403).json({ ok: false, msg: 'Admin not found' });
+  const isSuperAdmin = admin.roles.includes('super') || admin.roles.includes('super_admin');
+  if (!isSuperAdmin && !group.adminIds.includes(adminId)) {
+    return res.status(403).json({ ok: false, msg: 'Only group admins can remove channel members' });
+  }
+  channel.memberIds = channel.memberIds || [];
+  if (!channel.memberIds.includes(userId)) {
+    return res.status(400).json({ ok: false, msg: 'User is not a channel member' });
+  }
+  channel.memberIds = channel.memberIds.filter(id => id !== userId);
+  saveDataToDisk();
+  res.json({ ok: true, msg: 'User removed from channel' });
 });
 
 // Ban user from channel (owner only)
@@ -620,6 +756,7 @@ app.post('/api/channels/:channelId/ban', (req, res) => {
   }
   
   channel.bannedUserIds.push(userId);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User banned from channel' });
 });
 
@@ -641,6 +778,7 @@ app.delete('/api/channels/:channelId/ban/:userId', (req, res) => {
   }
   
   channel.bannedUserIds = channel.bannedUserIds.filter(id => id !== userId);
+  saveDataToDisk();
   res.json({ ok: true, msg: 'User unbanned from channel' });
 });
 
@@ -667,6 +805,7 @@ app.post('/api/reports', (req, res) => {
   };
   
   reports.push(report);
+  saveDataToDisk();
   res.status(201).json({ ok: true, msg: 'Report submitted to super admins' });
 });
 

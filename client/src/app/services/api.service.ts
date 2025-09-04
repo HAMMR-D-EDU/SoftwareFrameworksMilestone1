@@ -62,6 +62,10 @@ export class ApiService {
     return this.http.get<ApiUser[]>(`${this.base}/admin/users?adminId=${adminId}`);
   }
 
+  adminCreateUser(adminId: string, username: string, email?: string, password?: string): Observable<{ ok: boolean; user?: ApiUser; msg?: string }> {
+    return this.http.post<{ ok: boolean; user?: ApiUser; msg?: string }>(`${this.base}/admin/users`, { adminId, username, email, password });
+  }
+
   adminToggleGroupAdmin(userId: string, adminId: string, promote: boolean): Observable<{ ok: boolean; msg?: string }> {
     if (promote) {
       return this.http.patch<{ ok: boolean; msg?: string }>(`${this.base}/admin/users/${userId}/role`, { add: 'group_admin', adminId });
@@ -101,6 +105,18 @@ export class ApiService {
 
   getGroupChannels(groupId: string): Observable<Channel[]> {
     return this.http.get<Channel[]>(`${this.base}/api/groups/${groupId}/channels`);
+  }
+
+  getGroupChannelsForUser(groupId: string, userId: string): Observable<Channel[]> {
+    return this.http.get<Channel[]>(`${this.base}/api/groups/${groupId}/channels`, { params: { userId } as any });
+  }
+
+  addUserToChannel(channelId: string, userId: string, adminId: string): Observable<{ ok: boolean; msg?: string }> {
+    return this.http.post<{ ok: boolean; msg?: string }>(`${this.base}/api/channels/${channelId}/members`, { userId, adminId });
+  }
+
+  removeUserFromChannel(channelId: string, userId: string, adminId: string): Observable<{ ok: boolean; msg?: string }> {
+    return this.http.delete<{ ok: boolean; msg?: string }>(`${this.base}/api/channels/${channelId}/members/${userId}`, { body: { adminId } });
   }
 
   banUserFromChannel(channelId: string, userId: string, adminId: string): Observable<{ ok: boolean; msg?: string }> {

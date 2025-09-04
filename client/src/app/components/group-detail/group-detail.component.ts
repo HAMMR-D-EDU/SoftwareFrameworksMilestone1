@@ -259,7 +259,8 @@ export class GroupDetailComponent implements OnInit {
 
   loadChannels() {
     if (this.group) {
-      this.api.getGroupChannels(this.group.id).subscribe({
+      const uid = this.currentUser?.id || '';
+      this.api.getGroupChannelsForUser(this.group.id, uid).subscribe({
         next: (channels) => {
           this.channels = channels;
         },

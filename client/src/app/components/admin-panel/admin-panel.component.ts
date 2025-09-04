@@ -19,6 +19,22 @@ import { ApiService, ApiUser } from '../../services/api.service';
               <h5 class="mb-0">Global User Management</h5>
             </div>
             <div class="card-body">
+              <form *ngIf="isSuperAdmin()" (ngSubmit)="createUser()" class="mb-3 vstack gap-2">
+                <h6>Create New User</h6>
+                <div>
+                  <label class="form-label">Username</label>
+                  <input class="form-control" [(ngModel)]="newUsername" name="newUsername" required>
+                </div>
+                <div>
+                  <label class="form-label">Email (optional)</label>
+                  <input class="form-control" [(ngModel)]="newEmail" name="newEmail" type="email">
+                </div>
+                <div>
+                  <label class="form-label">Password (optional, default 123)</label>
+                  <input class="form-control" [(ngModel)]="newPassword" name="newPassword" type="text" placeholder="123">
+                </div>
+                <button class="btn btn-sm btn-success" type="submit">Create User</button>
+              </form>
               <div *ngIf="users.length === 0" class="text-muted">
                 No users found.
               </div>
@@ -103,6 +119,9 @@ export class AdminPanelComponent implements OnInit {
   adminError = '';
   adminSuccess = '';
   targetGroupId = '';
+  newUsername = '';
+  newEmail = '';
+  newPassword = '';
 
   constructor(
     private auth: AuthService,
@@ -128,6 +147,36 @@ export class AdminPanelComponent implements OnInit {
         }
       });
     }
+  }
+
+  createUser() {
+    this.adminError = '';
+    this.adminSuccess = '';
+    if (!this.currentUser) return;
+    const username = this.newUsername.trim();
+    const email = this.newEmail.trim();
+    const password = this.newPassword.trim() || undefined;
+    if (!username) {
+      this.adminError = 'Username is required';
+      return;
+    }
+    this.api.adminCreateUser(this.currentUser.id, username, email || undefined, password).subscribe({
+      next: (r) => {
+        if (r.ok) {
+          this.adminSuccess = `User ${username} created`;
+          this.newUsername = '';
+          this.newEmail = '';
+          this.newPassword = '';
+          this.loadUsers();
+          setTimeout(() => this.adminSuccess = '', 3000);
+        } else {
+          this.adminError = r.msg || 'Failed to create user';
+        }
+      },
+      error: (e) => {
+        this.adminError = e.error?.msg || 'Failed to create user';
+      }
+    });
   }
 
   removeUser(userId: string) {
